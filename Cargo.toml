@@ -1,0 +1,17 @@
+[package]
+name = "know-it-all-bot"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-openai = "0.9.2"
+dotenv = "0.15.0"
+log = "0.4.17"
+pretty_env_logger = "0.4.0"
+reqwest = "0.11.14"
+serde = "1.0.154"
+serde_json = "1.0.94"
+teloxide = { version = "0.12.2", features = ["macros"] }
+tokio ={ version = "1.26.0", features = ["rt-multi-thread"]}

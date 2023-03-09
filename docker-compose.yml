@@ -1,0 +1,11 @@
+version: '3.7'
+
+services:
+  bot:
+    image: scristobal/know-it-all:latest
+    container_name: know-it-all
+    env_file: .env
+    build:
+      context: .
+    ports:
+      - 8080:8080
