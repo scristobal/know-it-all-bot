@@ -1,5 +1,8 @@
 use dotenv::dotenv;
-use know_it_all_bot::telegram_bot::{answer_cmd_repl, Command};
+use know_it_all_bot::{
+    health_checker,
+    telegram_bot::{answer_cmd_repl, Command},
+};
 use std::io::Result;
 use teloxide::prelude::*;
 
@@ -16,6 +19,8 @@ async fn main() -> Result<()> {
     let bot = teloxide::Bot::from_env();
 
     tokio::spawn(Command::repl(bot, answer_cmd_repl));
+
+    tokio::spawn(health_checker::run(([0, 0, 0, 0], 8080)));
 
     tokio::signal::ctrl_c().await
 }
