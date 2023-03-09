@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use async_openai::{
     error::OpenAIError,
     types::{ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role},

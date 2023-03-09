@@ -1,7 +1,7 @@
 use dotenv::dotenv;
-use know_it_all_bot::bot::{answer_cmd_repl, Command};
+use know_it_all_bot::telegram_bot::{answer_cmd_repl, Command};
 use std::io::Result;
-use teloxide::{types::Message, utils::command::BotCommands, Bot};
+use teloxide::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,11 +15,7 @@ async fn main() -> Result<()> {
     log::info!("Starting bot...");
     let bot = teloxide::Bot::from_env();
 
-    tokio::spawn(teloxide::commands_repl(
-        bot,
-        move |bot: Bot, msg: Message, cmd: Command| async move { answer_cmd_repl(bot, msg, cmd).await },
-        Command::ty(),
-    ));
+    tokio::spawn(Command::repl(bot, answer_cmd_repl));
 
     tokio::signal::ctrl_c().await
 }
