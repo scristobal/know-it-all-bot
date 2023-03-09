@@ -15,3 +15,6 @@ target
 
 target
 fly.toml
+
+
+.env
