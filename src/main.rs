@@ -5,17 +5,18 @@ use know_it_all_bot::{
 };
 use std::io::Result;
 use teloxide::prelude::*;
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    pretty_env_logger::init();
+    tracing_subscriber::fmt::init();
 
     match dotenv() {
-        Ok(_) => log::info!("Loaded .env file"),
-        Err(_) => log::info!("No .env file found. Falling back to environment variables"),
+        Ok(_) => info!("Loaded .env file"),
+        Err(_) => info!("No .env file found. Falling back to environment variables"),
     }
 
-    log::info!("Starting bot...");
+    info!("Starting bot...");
     let bot = teloxide::Bot::from_env();
 
     tokio::spawn(Command::repl(bot, answer_cmd_repl));
