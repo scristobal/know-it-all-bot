@@ -13,7 +13,7 @@ pub async fn reply(prompt: String) -> Result<Vec<String>, OpenAIError> {
         .messages([
             ChatCompletionRequestMessageArgs::default()
                 .role(Role::System)
-                .content("You are a Telegram bot that answers trivia questions.")
+                .content("You are a chat bot that answers user's questions.")
                 .build()?,
             ChatCompletionRequestMessageArgs::default()
                 .role(Role::User)
