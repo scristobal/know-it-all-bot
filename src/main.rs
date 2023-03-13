@@ -1,10 +1,10 @@
 use dotenv::dotenv;
 use know_it_all_bot::{
     health_checker,
-    telegram_bot::{answer_cmd_repl, Command},
+    telegram_bot::{schema, State},
 };
 use std::io::Result;
-use teloxide::prelude::*;
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
 use tracing::info;
 
 #[tokio::main]
@@ -16,12 +16,17 @@ async fn main() -> Result<()> {
         Err(_) => info!("No .env file found. Falling back to environment variables"),
     }
 
+    tokio::spawn(health_checker::run(([0, 0, 0, 0], 8080)));
+
     info!("Starting bot...");
     let bot = teloxide::Bot::from_env();
 
-    tokio::spawn(Command::repl(bot, answer_cmd_repl));
+    Dispatcher::builder(bot, schema())
+        .dependencies(dptree::deps![InMemStorage::<State>::new()])
+        .enable_ctrlc_handler()
+        .build()
+        .dispatch()
+        .await;
 
-    tokio::spawn(health_checker::run(([0, 0, 0, 0], 8080)));
-
-    tokio::signal::ctrl_c().await
+    Ok(())
 }
