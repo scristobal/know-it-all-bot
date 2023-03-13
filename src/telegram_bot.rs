@@ -3,7 +3,10 @@ use std::default;
 use crate::openai_client::reply;
 
 use teloxide::{
-    dispatching::{dialogue::InMemStorage, UpdateHandler},
+    dispatching::{
+        dialogue::{self, InMemStorage, InMemStorageError},
+        UpdateHandler,
+    },
     filter_command,
     prelude::*,
     utils::command::BotCommands,
@@ -29,7 +32,7 @@ pub enum Command {
     Ask(String),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub enum State {
     #[default]
     Start,
@@ -37,7 +40,7 @@ pub enum State {
     Chat(Vec<Msg>),
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, Clone)]
 pub struct Msg {
     role: String,
     content: String,
@@ -46,19 +49,21 @@ pub struct Msg {
 }
 
 #[instrument]
-pub fn schema() -> UpdateHandler<()> {
+pub fn schema() -> UpdateHandler<InMemStorageError> {
     use dptree::case;
 
     let cmd_handler = filter_command::<Command, _>().branch(case![Command::Reset].endpoint(reset));
 
-    todo!()
+    dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(cmd_handler)
 }
 
-type MyDialogue = Dialogue<State, InMemStorage<State>>;
-type HandlerResult = Result<(), ()>;
+type InMemDialogue = Dialogue<State, InMemStorage<State>>;
 
-async fn reset(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
-    todo!()
+type HandlerResult = Result<(), InMemStorageError>;
+
+async fn reset(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    dialogue.update(State::Start).await?;
+    Ok(())
 }
 
 #[instrument]
