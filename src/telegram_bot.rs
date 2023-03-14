@@ -1,24 +1,22 @@
-use std::default;
-
 use crate::openai_client::reply;
 
 use serde::Serialize;
 use teloxide::{
     dispatching::{
-        dialogue::{self, GetChatId, InMemStorage, InMemStorageError},
+        dialogue::{self, InMemStorage},
         UpdateHandler,
     },
-    dptree::di,
     filter_command,
     prelude::*,
-    types::{MediaKind, MediaText, MessageKind, UpdateKind},
+    types::{MediaKind, MessageKind, UpdateKind},
     utils::command::BotCommands,
-    RequestError,
 };
 use tracing::{
     instrument, {error, info},
 };
 use uuid::Uuid;
+
+use dptree::case;
 
 #[derive(BotCommands, Clone)]
 #[command(
@@ -38,8 +36,8 @@ pub enum State {
     Chat(Vec<Msg>),
 }
 
-#[derive(Debug, Clone, Serialize)]
-enum Role {
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum Role {
     System,
     User,
     Assistant,
@@ -57,20 +55,18 @@ impl ToString for Role {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Msg {
-    role: Role,
-    content: String,
+    pub role: Role,
+    pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
+    pub name: Option<String>,
 }
 
 #[instrument]
 pub fn schema() -> UpdateHandler<anyhow::Error> {
-    use dptree::case;
-
     let cmd_handler = filter_command::<Command, _>().branch(case![Command::Reset].endpoint(reset));
 
     let msg_handler = Update::filter_message()
-        .filter(|m: Update| {
+        /*  .filter(|m: Update| {
             if let UpdateKind::Message(msg) = m.kind {
                 if let MessageKind::Common(msg) = msg.kind {
                     if let MediaKind::Text(msg) = msg.media_kind {
@@ -78,9 +74,8 @@ pub fn schema() -> UpdateHandler<anyhow::Error> {
                     }
                 }
             }
-
             true
-        })
+        })*/
         .branch(cmd_handler)
         .branch(case![State::Start].endpoint(start))
         .branch(case![State::Chat(msgs)].endpoint(new_msg));
@@ -100,6 +95,14 @@ async fn reset(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult
 }
 
 async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    let me = bot.get_me().await?.mention();
+
+    let msg_text = msg.text().unwrap();
+
+    if !msg.chat.is_private() && !msg_text.starts_with(&me) {
+        return Ok(());
+    }
+
     dialogue
         .update(State::Chat(vec![Msg {
             role: Role::System,
@@ -107,8 +110,22 @@ async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult
             name: None,
         }]))
         .await?;
+
     bot.send_message(msg.chat.id, "Starting a new conversation")
         .await?;
+
+    new_msg(
+        bot,
+        dialogue,
+        msg,
+        vec![Msg {
+            role: Role::System,
+            content: "You are a chat bot".to_string(),
+            name: None,
+        }],
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -118,33 +135,30 @@ async fn new_msg(
     msg: Message,
     mut msgs: Vec<Msg>,
 ) -> HandlerResult {
+    let me = bot.get_me().await?.mention();
+
+    let msg_text = msg.text().unwrap();
+
+    if !msg.chat.is_private() && !msg_text.starts_with(&me) {
+        return Ok(());
+    }
+
+    let msg_text = msg_text.replace(&me, "");
+
     msgs.push(Msg {
         role: Role::User,
-        content: msg.text().unwrap().to_string(),
+        content: msg_text,
         name: msg.chat.username().map(|user| user.to_string()),
     });
 
-    bot.send_message(msg.chat.id, format!("got so far {:?}", &msgs))
-        .await?;
-
-    dialogue.update(State::Chat(msgs)).await.unwrap();
-
-    Ok(())
-}
-
-/*
-#[instrument]
-pub async fn answer_cmd_repl(
-    bot: teloxide::Bot,
-    msg: Message,
-    cmd: Command,
-) -> Result<(), RequestError> {
-    info!(user = msg.chat.username().unwrap_or("unknown"));
-
-    let results = match cmd {
-        Command::Ask(prompt) => reply(prompt).await,
-        _ => unimplemented!(),
-    };
+    let results = reply(
+        &msgs
+            .clone()
+            .into_iter()
+            .map(|m| m.into())
+            .collect::<Vec<_>>(),
+    )
+    .await;
 
     match results {
         Err(e) => {
@@ -160,10 +174,18 @@ pub async fn answer_cmd_repl(
         }
         Ok(results) => {
             for result in results {
-                bot.send_message(msg.chat.id, result).await?;
+                bot.send_message(msg.chat.id, &result).await?;
+                msgs.push(Msg {
+                    role: Role::Assistant,
+                    content: result,
+                    name: None,
+                })
             }
+            info!(?msgs);
+
+            dialogue.update(State::Chat(msgs)).await.unwrap();
         }
     };
+
     Ok(())
 }
-*/

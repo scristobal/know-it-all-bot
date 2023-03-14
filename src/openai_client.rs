@@ -1,25 +1,16 @@
 use async_openai::{
     error::OpenAIError,
-    types::{ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role},
+    types::{ChatCompletionRequestMessage, CreateChatCompletionRequestArgs},
     Client,
 };
 
-pub async fn reply(prompt: String) -> Result<Vec<String>, OpenAIError> {
+pub async fn reply(msgs: &[ChatCompletionRequestMessage]) -> Result<Vec<String>, OpenAIError> {
     let client = Client::new();
 
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(512u16)
         .model("gpt-3.5-turbo")
-        .messages([
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content("You are a chat bot that answers user's questions.")
-                .build()?,
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::User)
-                .content(prompt)
-                .build()?,
-        ])
+        .messages(msgs)
         .build()?;
 
     let response = client.chat().create(request).await?;

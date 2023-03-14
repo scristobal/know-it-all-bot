@@ -21,6 +21,8 @@ async fn main() -> Result<()> {
     info!("Starting bot...");
     let bot = teloxide::Bot::from_env();
 
+    let me = bot.get_me().await.unwrap().mention();
+
     Dispatcher::builder(bot, schema())
         .dependencies(dptree::deps![InMemStorage::<State>::new()])
         .enable_ctrlc_handler()
