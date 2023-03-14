@@ -63,20 +63,14 @@ pub struct Msg {
 
 #[instrument]
 pub fn schema() -> UpdateHandler<anyhow::Error> {
-    let cmd_handler = filter_command::<Command, _>().branch(case![Command::Reset].endpoint(reset));
+    let is_private = |msg: Message| msg.chat.is_private();
+
+    let private_cmd_handler = filter_command::<Command, _>()
+        .filter(is_private)
+        .branch(case![Command::Reset].endpoint(reset));
 
     let msg_handler = Update::filter_message()
-        /*  .filter(|m: Update| {
-            if let UpdateKind::Message(msg) = m.kind {
-                if let MessageKind::Common(msg) = msg.kind {
-                    if let MediaKind::Text(msg) = msg.media_kind {
-                        info!(  ?msg.text)
-                    }
-                }
-            }
-            true
-        })*/
-        .branch(cmd_handler)
+        .branch(private_cmd_handler)
         .branch(case![State::Start].endpoint(start))
         .branch(case![State::Chat(msgs)].endpoint(new_msg));
 
