@@ -65,12 +65,10 @@ pub struct Msg {
 pub fn schema() -> UpdateHandler<anyhow::Error> {
     let is_private = |msg: Message| msg.chat.is_private();
 
-    let private_cmd_handler = filter_command::<Command, _>()
-        .filter(is_private)
-        .branch(case![Command::Reset].endpoint(reset));
+    let cmd_handler = filter_command::<Command, _>().branch(case![Command::Reset].endpoint(reset));
 
     let msg_handler = Update::filter_message()
-        .branch(private_cmd_handler)
+        .branch(cmd_handler)
         .branch(case![State::Start].endpoint(start))
         .branch(case![State::Chat(msgs)].endpoint(new_msg));
 
@@ -88,7 +86,7 @@ async fn reset(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult
     Ok(())
 }
 
-async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+async fn has_mention(bot: Bot, msg: Message) -> HandlerResult {
     let me = bot.get_me().await?.mention();
 
     let msg_text = msg.text().unwrap();
@@ -97,6 +95,12 @@ async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult
         return Ok(());
     }
 
+    let msg_text = msg_text.replace(&me, "");
+
+    Ok(())
+}
+
+async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
     dialogue
         .update(State::Chat(vec![Msg {
             role: Role::System,
@@ -129,19 +133,9 @@ async fn new_msg(
     msg: Message,
     mut msgs: Vec<Msg>,
 ) -> HandlerResult {
-    let me = bot.get_me().await?.mention();
-
-    let msg_text = msg.text().unwrap();
-
-    if !msg.chat.is_private() && !msg_text.starts_with(&me) {
-        return Ok(());
-    }
-
-    let msg_text = msg_text.replace(&me, "");
-
     msgs.push(Msg {
         role: Role::User,
-        content: msg_text,
+        content: msg.text().unwrap().to_string(),
         name: msg.chat.username().map(|user| user.to_string()),
     });
 
