@@ -109,8 +109,8 @@ async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult
         }]))
         .await?;
 
-    bot.send_message(msg.chat.id, "Starting a new conversation")
-        .await?;
+    // bot.send_message(msg.chat.id, "Starting a new conversation")
+    //    .await?;
 
     new_msg(
         bot,
@@ -118,7 +118,7 @@ async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult
         msg,
         vec![Msg {
             role: Role::System,
-            content: "You are a chat bot".to_string(),
+            content: "You are GTP-4 a Telegram chat bot ".to_string(),
             name: None,
         }],
     )
@@ -133,9 +133,19 @@ async fn new_msg(
     msg: Message,
     mut msgs: Vec<Msg>,
 ) -> HandlerResult {
+    let me = bot.get_me().await?.mention();
+
+    let msg_text = msg.text().unwrap();
+
+    if !msg.chat.is_private() && !msg_text.starts_with(&me) {
+        return Ok(());
+    }
+
+    let msg_text = msg_text.replace(&me, "");
+
     msgs.push(Msg {
         role: Role::User,
-        content: msg.text().unwrap().to_string(),
+        content: msg_text,
         name: msg.chat.username().map(|user| user.to_string()),
     });
 
