@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
 
     let me = bot.get_me().await.unwrap().mention();
 
-    info!("Starting bot {}", me);
+    info!("... {} started!", me);
 
     Dispatcher::builder(bot, schema())
         .dependencies(dptree::deps![InMemStorage::<State>::new()])

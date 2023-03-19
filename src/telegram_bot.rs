@@ -11,9 +11,7 @@ use teloxide::{
     types::ParseMode,
     utils::{command::BotCommands, markdown::escape},
 };
-use tracing::{
-    instrument, {error, info},
-};
+use tracing::{error, instrument};
 use uuid::Uuid;
 
 use dptree::case;
@@ -172,8 +170,6 @@ async fn history(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResu
                     reply_txt.push_str(&format!("{}: {}\n", name, msg.content));
                 }
 
-                info!(reply_txt);
-
                 bot.send_message(chat_id, escape(&reply_txt))
                     .parse_mode(ParseMode::MarkdownV2)
                     .await?
@@ -235,8 +231,6 @@ async fn new_msg(
 
     let username = msg.from().and_then(|user| user.username.clone());
 
-    info!(username);
-
     msgs.push(Msg {
         role: Role::User,
         content: msg_text,
@@ -275,7 +269,6 @@ async fn new_msg(
                     name: botname.clone(),
                 })
             }
-            info!(?msgs);
 
             dialogue.update(State::Chatting(msgs)).await.unwrap();
         }
