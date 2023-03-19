@@ -8,12 +8,10 @@ use teloxide::{
     },
     filter_command,
     prelude::*,
-    types::{MediaKind, MessageKind, UpdateKind},
-    utils::command::BotCommands,
+    types::ParseMode,
+    utils::{command::BotCommands, markdown::escape},
 };
-use tracing::{
-    instrument, {error, info},
-};
+use tracing::{error, instrument};
 use uuid::Uuid;
 
 use dptree::case;
@@ -26,14 +24,18 @@ use dptree::case;
 #[derive(Debug)]
 pub enum Command {
     #[command()]
+    State,
     Reset,
+    Mute,
+    Chat,
+    History,
 }
 
 #[derive(Debug, Default, Clone)]
 pub enum State {
     #[default]
-    Start,
-    Chat(Vec<Msg>),
+    Muted,
+    Chatting(Vec<Msg>),
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -63,14 +65,21 @@ pub struct Msg {
 
 #[instrument]
 pub fn schema() -> UpdateHandler<anyhow::Error> {
-    let is_private = |msg: Message| msg.chat.is_private();
-
-    let cmd_handler = filter_command::<Command, _>().branch(case![Command::Reset].endpoint(reset));
+    let cmd_handler = filter_command::<Command, _>()
+        .branch(case![Command::State].endpoint(state))
+        .branch(case![State::Muted].branch(case![Command::Chat].endpoint(start)))
+        .branch(
+            case![State::Chatting(msgs)]
+                .branch(case![Command::History].endpoint(history))
+                .branch(case![Command::Reset].endpoint(reset))
+                .branch(case![Command::Mute].endpoint(mute)),
+        );
 
     let msg_handler = Update::filter_message()
         .branch(cmd_handler)
-        .branch(case![State::Start].endpoint(start))
-        .branch(case![State::Chat(msgs)].endpoint(new_msg));
+        .branch(case![State::Muted].endpoint(muted))
+        .branch(case![State::Chatting(msgs)].endpoint(new_msg))
+        .endpoint(invalid);
 
     dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(msg_handler)
 }
@@ -79,51 +88,113 @@ type InMemDialogue = Dialogue<State, InMemStorage<State>>;
 
 type HandlerResult = Result<(), anyhow::Error>;
 
-async fn reset(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
-    dialogue.exit().await?;
-    bot.send_message(msg.chat.id, "Conversation history has been deleted")
-        .await?;
-    Ok(())
-}
+async fn state(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    let state = dialogue.get().await?;
 
-async fn has_mention(bot: Bot, msg: Message) -> HandlerResult {
-    let me = bot.get_me().await?.mention();
+    let reply_txt = match state {
+        None => "No active conversation".to_string(),
+        Some(state) => format!("State: {:?}", state),
+    };
 
-    let msg_text = msg.text().unwrap();
-
-    if !msg.chat.is_private() && !msg_text.starts_with(&me) {
-        return Ok(());
-    }
-
-    let msg_text = msg_text.replace(&me, "");
+    bot.send_message(msg.chat.id, reply_txt).await?;
 
     Ok(())
 }
 
 async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
-    dialogue
-        .update(State::Chat(vec![Msg {
-            role: Role::System,
-            content: "You are a chat bot".to_string(),
-            name: None,
-        }]))
+    dialogue.update(State::Chatting(vec![])).await?;
+
+    let me = bot.get_me().await?.mention();
+
+    let reply_txt = if msg.chat.is_private() {
+        "`Starting private chat mode, REPL`".to_string()
+    } else {
+        format!(
+            "`Starting group chat mode, REPL. Prepend messages with {}`",
+            me
+        )
+    };
+
+    bot.send_message(msg.chat.id, reply_txt)
+        .parse_mode(ParseMode::MarkdownV2)
         .await?;
 
-    // bot.send_message(msg.chat.id, "Starting a new conversation")
-    //    .await?;
+    Ok(())
+}
 
-    new_msg(
-        bot,
-        dialogue,
-        msg,
-        vec![Msg {
-            role: Role::System,
-            content: "You are GTP-4 a Telegram chat bot ".to_string(),
-            name: None,
-        }],
+async fn mute(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    dialogue.update(State::Muted).await?;
+
+    bot.send_message(msg.chat.id, "`Muted until futher notice`")
+        .parse_mode(ParseMode::MarkdownV2)
+        .await?;
+
+    Ok(())
+}
+
+async fn invalid(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    dialogue.exit().await?;
+
+    let error_id = Uuid::new_v4().simple().to_string();
+
+    error!(error_id);
+
+    bot.send_message(
+                msg.chat.id,
+                format!("there was an error processing your request, you can use this ID to track the issue `{}`", error_id),
+            ).parse_mode(ParseMode::MarkdownV2)
+            .await?;
+
+    Ok(())
+}
+
+async fn history(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    let msgs = dialogue.get().await?;
+
+    let chat_id = msg.chat.id;
+
+    match msgs {
+        None => bot.send_message(chat_id, "No active conversation").await?,
+
+        Some(state) => match state {
+            State::Muted => bot.send_message(chat_id, "Bot is muted").await?,
+            State::Chatting(messages) => {
+                let mut reply_txt = String::new();
+
+                for msg in messages {
+                    let name = match msg.name {
+                        Some(name) => name,
+                        None => "System".to_string(),
+                    };
+
+                    reply_txt.push_str(&format!("{}: {}\n", name, msg.content));
+                }
+
+                bot.send_message(chat_id, escape(&reply_txt))
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?
+            }
+        },
+    };
+
+    Ok(())
+}
+
+async fn reset(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    dialogue.update(State::Chatting(vec![])).await?;
+
+    bot.send_message(
+        msg.chat.id,
+        "`Conversation history has been deleted. Still in chat, REPL mode`",
     )
+    .parse_mode(ParseMode::MarkdownV2)
     .await?;
 
+    Ok(())
+}
+
+async fn muted() -> HandlerResult {
+    // if the bot is muted do nothing
     Ok(())
 }
 
@@ -133,6 +204,10 @@ async fn new_msg(
     msg: Message,
     mut msgs: Vec<Msg>,
 ) -> HandlerResult {
+    // check if the bot is mentioned in non-private chats (groups, and so)
+    // if not mentioned and not in private chat, do nothing
+    // otherwise remove metion and go ahead
+
     let me = bot.get_me().await?.mention();
 
     let msg_text = msg.text().unwrap();
@@ -143,10 +218,23 @@ async fn new_msg(
 
     let msg_text = msg_text.replace(&me, "");
 
+    // end of bot mention check
+    // TODO: move this to a .chain method
+
+    if msgs.is_empty() {
+        msgs.push(Msg {
+            role: Role::System,
+            content: "You are GTP-4 a Telegram chat bot".to_string(),
+            name: None,
+        })
+    }
+
+    let username = msg.from().and_then(|user| user.username.clone());
+
     msgs.push(Msg {
         role: Role::User,
         content: msg_text,
-        name: msg.chat.username().map(|user| user.to_string()),
+        name: username,
     });
 
     let results = reply(
@@ -167,21 +255,22 @@ async fn new_msg(
             bot.send_message(
                 msg.chat.id,
                 format!("there was an error processing your request, you can use this ID to track the issue `{}`", error_id),
-            )
+            ).parse_mode(ParseMode::MarkdownV2)
             .await?;
         }
         Ok(results) => {
+            let botname = &bot.get_me().await?.username;
+
             for result in results {
                 bot.send_message(msg.chat.id, &result).await?;
                 msgs.push(Msg {
                     role: Role::Assistant,
                     content: result,
-                    name: None,
+                    name: botname.clone(),
                 })
             }
-            info!(?msgs);
 
-            dialogue.update(State::Chat(msgs)).await.unwrap();
+            dialogue.update(State::Chatting(msgs)).await.unwrap();
         }
     };
 

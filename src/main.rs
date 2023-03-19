@@ -23,6 +23,8 @@ async fn main() -> Result<()> {
 
     let me = bot.get_me().await.unwrap().mention();
 
+    info!("... {} started!", me);
+
     Dispatcher::builder(bot, schema())
         .dependencies(dptree::deps![InMemStorage::<State>::new()])
         .enable_ctrlc_handler()

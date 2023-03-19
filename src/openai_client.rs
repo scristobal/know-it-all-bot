@@ -3,7 +3,9 @@ use async_openai::{
     types::{ChatCompletionRequestMessage, CreateChatCompletionRequestArgs},
     Client,
 };
+use tracing::{info, instrument};
 
+#[instrument]
 pub async fn reply(msgs: &[ChatCompletionRequestMessage]) -> Result<Vec<String>, OpenAIError> {
     let client = Client::new();
 
@@ -14,6 +16,8 @@ pub async fn reply(msgs: &[ChatCompletionRequestMessage]) -> Result<Vec<String>,
         .build()?;
 
     let response = client.chat().create(request).await?;
+
+    info!(response = ?response);
 
     Ok(response
         .choices
