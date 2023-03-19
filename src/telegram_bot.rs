@@ -170,6 +170,12 @@ async fn history(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResu
                     reply_txt.push_str(&format!("{}: {}\n", name, msg.content));
                 }
 
+                let reply_txt = if reply_txt.is_empty() {
+                    "`there is no history`".to_string()
+                } else {
+                    reply_txt
+                };
+
                 bot.send_message(chat_id, escape(&reply_txt))
                     .parse_mode(ParseMode::MarkdownV2)
                     .await?
@@ -204,6 +210,7 @@ async fn new_msg(
     msg: Message,
     mut msgs: Vec<Msg>,
 ) -> HandlerResult {
+    // GUARDS
     // check if the bot is mentioned in non-private chats (groups, and so)
     // if not mentioned and not in private chat, do nothing
     // otherwise remove metion and go ahead
@@ -217,6 +224,10 @@ async fn new_msg(
     }
 
     let msg_text = msg_text.replace(&me, "");
+
+    if msg_text.is_empty() {
+        return Ok(());
+    }
 
     // end of bot mention check
     // TODO: move this to a .chain method
