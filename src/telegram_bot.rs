@@ -265,12 +265,14 @@ async fn new_msg(
             .await?;
         }
         Ok(results) => {
+            let botname = &bot.get_me().await?.username;
+
             for result in results {
                 bot.send_message(msg.chat.id, &result).await?;
                 msgs.push(Msg {
                     role: Role::Assistant,
                     content: result,
-                    name: None,
+                    name: botname.clone(),
                 })
             }
             info!(?msgs);
