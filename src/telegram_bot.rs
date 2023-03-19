@@ -232,14 +232,6 @@ async fn new_msg(
     // end of bot mention check
     // TODO: move this to a .chain method
 
-    if msgs.is_empty() {
-        msgs.push(Msg {
-            role: Role::System,
-            content: "You are GTP-4 a Telegram chat bot".to_string(),
-            name: None,
-        })
-    }
-
     let username = msg.from().and_then(|user| user.username.clone());
 
     msgs.push(Msg {
@@ -254,6 +246,8 @@ async fn new_msg(
             .into_iter()
             .map(|m| m.into())
             .collect::<Vec<_>>(),
+        None,
+        None,
     )
     .await;
 
@@ -272,16 +266,38 @@ async fn new_msg(
         Ok(results) => {
             let botname = &bot.get_me().await?.username;
 
-            for result in results {
-                bot.send_message(msg.chat.id, &result).await?;
+            let mut reply_txt = String::new();
+
+            for choice in results.choices {
+                let result = choice.message.content;
+
+                reply_txt.push_str(&result);
+
                 msgs.push(Msg {
                     role: Role::Assistant,
                     content: result,
                     name: botname.clone(),
-                })
+                });
             }
 
             dialogue.update(State::Chatting(msgs)).await.unwrap();
+
+            reply_txt = escape(&reply_txt);
+
+            if let Some(usage) = results.usage {
+                reply_txt.push_str(&format!(
+                    "\n\n`usage {} tokens = {} prompt + {} completion`",
+                    usage.total_tokens, usage.prompt_tokens, usage.completion_tokens
+                ));
+
+                if usage.total_tokens > 6000 {
+                    reply_txt.push_str("\n`Reaching 8k limit, consider running /reset soon`")
+                }
+            }
+
+            bot.send_message(msg.chat.id, &reply_txt)
+                .parse_mode(ParseMode::MarkdownV2)
+                .await?;
         }
     };
 
