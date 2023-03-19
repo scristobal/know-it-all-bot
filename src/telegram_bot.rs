@@ -9,7 +9,7 @@ use teloxide::{
     filter_command,
     prelude::*,
     types::ParseMode,
-    utils::command::BotCommands,
+    utils::{command::BotCommands, markdown::escape},
 };
 use tracing::{
     instrument, {error, info},
@@ -26,9 +26,11 @@ use dptree::case;
 #[derive(Debug)]
 pub enum Command {
     #[command()]
+    State,
     Reset,
     Mute,
     Chat,
+    History,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -66,14 +68,20 @@ pub struct Msg {
 #[instrument]
 pub fn schema() -> UpdateHandler<anyhow::Error> {
     let cmd_handler = filter_command::<Command, _>()
-        .branch(case![Command::Reset].endpoint(reset))
-        .branch(case![Command::Chat].endpoint(start))
-        .branch(case![Command::Mute].endpoint(mute));
+        .branch(case![Command::State].endpoint(state))
+        .branch(case![State::Muted].branch(case![Command::Chat].endpoint(start)))
+        .branch(
+            case![State::Chatting(msgs)]
+                .branch(case![Command::History].endpoint(history))
+                .branch(case![Command::Reset].endpoint(reset))
+                .branch(case![Command::Mute].endpoint(mute)),
+        );
 
     let msg_handler = Update::filter_message()
         .branch(cmd_handler)
         .branch(case![State::Muted].endpoint(muted))
-        .branch(case![State::Chatting(msgs)].endpoint(new_msg));
+        .branch(case![State::Chatting(msgs)].endpoint(new_msg))
+        .endpoint(invalid);
 
     dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(msg_handler)
 }
@@ -82,14 +90,23 @@ type InMemDialogue = Dialogue<State, InMemStorage<State>>;
 
 type HandlerResult = Result<(), anyhow::Error>;
 
+async fn state(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    let state = dialogue.get().await?;
+
+    let reply_txt = match state {
+        None => "No active conversation".to_string(),
+        Some(state) => format!("State: {:?}", state),
+    };
+
+    bot.send_message(msg.chat.id, reply_txt).await?;
+
+    Ok(())
+}
+
 async fn start(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
     dialogue.update(State::Chatting(vec![])).await?;
 
-    info!(?bot);
-
     let me = bot.get_me().await?.mention();
-
-    info!("{}", me);
 
     let reply_txt = if msg.chat.is_private() {
         "`Starting private chat mode, REPL`".to_string()
@@ -117,12 +134,65 @@ async fn mute(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult 
     Ok(())
 }
 
-async fn reset(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+async fn invalid(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
     dialogue.exit().await?;
 
-    bot.send_message(msg.chat.id, "`Conversation history has been deleted`")
-        .parse_mode(ParseMode::MarkdownV2)
-        .await?;
+    let error_id = Uuid::new_v4().simple().to_string();
+
+    error!(error_id);
+
+    bot.send_message(
+                msg.chat.id,
+                format!("there was an error processing your request, you can use this ID to track the issue `{}`", error_id),
+            ).parse_mode(ParseMode::MarkdownV2)
+            .await?;
+
+    Ok(())
+}
+
+async fn history(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    let msgs = dialogue.get().await?;
+
+    let chat_id = msg.chat.id;
+
+    match msgs {
+        None => bot.send_message(chat_id, "No active conversation").await?,
+
+        Some(state) => match state {
+            State::Muted => bot.send_message(chat_id, "Bot is muted").await?,
+            State::Chatting(messages) => {
+                let mut reply_txt = String::new();
+
+                for msg in messages {
+                    let name = match msg.name {
+                        Some(name) => name,
+                        None => "System".to_string(),
+                    };
+
+                    reply_txt.push_str(&format!("{}: {}\n", name, msg.content));
+                }
+
+                info!(reply_txt);
+
+                bot.send_message(chat_id, escape(&reply_txt))
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?
+            }
+        },
+    };
+
+    Ok(())
+}
+
+async fn reset(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult {
+    dialogue.update(State::Chatting(vec![])).await?;
+
+    bot.send_message(
+        msg.chat.id,
+        "`Conversation history has been deleted. Still in chat, REPL mode`",
+    )
+    .parse_mode(ParseMode::MarkdownV2)
+    .await?;
 
     Ok(())
 }
@@ -163,10 +233,14 @@ async fn new_msg(
         })
     }
 
+    let username = msg.from().and_then(|user| user.username.clone());
+
+    info!(username);
+
     msgs.push(Msg {
         role: Role::User,
         content: msg_text,
-        name: msg.chat.username().map(|user| user.to_string()),
+        name: username,
     });
 
     let results = reply(
@@ -187,7 +261,7 @@ async fn new_msg(
             bot.send_message(
                 msg.chat.id,
                 format!("there was an error processing your request, you can use this ID to track the issue `{}`", error_id),
-            )
+            ).parse_mode(ParseMode::MarkdownV2)
             .await?;
         }
         Ok(results) => {
