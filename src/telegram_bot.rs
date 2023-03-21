@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::openai_client::reply;
 
 use serde::Serialize;
@@ -31,11 +33,27 @@ pub enum Command {
     History,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub enum State {
-    #[default]
-    Muted,
     Chatting(Vec<Msg>),
+    Muted,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::Chatting(vec![])
+    }
+}
+
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::Muted => write!(f, "Sate: muted"),
+            State::Chatting(msgs) => {
+                f.write_fmt(format_args!("State:chatting({} msgs)", msgs.len()))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -93,7 +111,7 @@ async fn state(bot: Bot, dialogue: InMemDialogue, msg: Message) -> HandlerResult
 
     let reply_txt = match state {
         None => "No active conversation".to_string(),
-        Some(state) => format!("State: {:?}", state),
+        Some(state) => format!("State: {:}", state),
     };
 
     bot.send_message(msg.chat.id, reply_txt).await?;
