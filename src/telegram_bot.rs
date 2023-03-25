@@ -50,7 +50,7 @@ impl Display for State {
         match self {
             State::Muted => write!(f, "Sate: muted"),
             State::Chatting(msgs) => {
-                f.write_fmt(format_args!("State:chatting({} msgs)", msgs.len()))
+                f.write_fmt(format_args!("State: chatting ({} msgs)", msgs.len()))
             }
         }
     }
