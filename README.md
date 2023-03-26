@@ -1,15 +1,11 @@
 # know-it-all-bot
 
+> **Warning**
+> This is a legacy project, it has been replaced by [Chatlize](https://github.com/scristobal/chatlyze)
+
 A Telegram bot that knows it all, powered by OpenAI's ChatGPT
 
-## Usage
-
-There is only one command `/ask <prompt>`
-
-## Limitations
-
-The bot has no memory of previous interactions/messages. So each interaction starts a blank new context.
-There is no feedback while the answer is generated, neither the answers are streamed.
+The bot retains memory of previous interactions/messages as uses it as context for the next interactions. However, there is a limit of 8k per request context. The bot will notify when the context is close to the limit. In that case `/reset` will clear the conversation history.
 
 ## Setup
 
